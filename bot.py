@@ -2,9 +2,11 @@ import os
 import logging
 import google.generativeai as genai
 import io
+import threading
 from PIL import Image
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from flask import Flask
 
 # --- Setup ---
 # Set up logging to see errors
@@ -13,6 +15,24 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# --- Flask Web Server (to keep Render alive) ---
+# We need to run a simple web server to respond to Render's health checks.
+# This keeps our "Web Service" (on the free plan) from going to sleep.
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    # This is just a simple page to show that the bot is running.
+    return "Hello! Your SplitBill AI Bot is alive and running."
+
+def run_flask():
+    # Get the port from the environment, default to 8080
+    port = int(os.environ.get('PORT', 8080))
+    # We run this on 0.0.0.0 to make it accessible in the Render container
+    app.run(host='0.0.0.0', port=port)
+
+logger.info("Flask server configured.")
 
 # --- Load API Keys ---
 # We load the keys from the environment (the host) instead of hard-coding them
@@ -159,7 +179,14 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """Start the bot."""
-    # Create the Application and pass it your bot's token.
+    
+    # Start the Flask web server in a separate thread
+    # The 'daemon=True' means this thread will close when the main program exits.
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info("Flask server starting in a background thread.")
+
+    # Create the Telegram Bot Application
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     logger.info("Bot application built")
 
@@ -175,6 +202,7 @@ def main():
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
 
     # Run the bot until the user presses Ctrl-C
+    # This runs in the main thread
     logger.info("Starting bot polling...")
     application.run_polling()
 
