@@ -54,14 +54,14 @@ else:
 # --- Conversation States ---
 RECEIVE_PHOTO, RECEIVE_ASSIGNMENTS = range(2)
 
-# --- Bot Command Functions (Same as before) ---
+# --- Bot Command Functions ---
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a welcome message when the /start command is issued."""
     user = update.effective_user
     welcome_message = (
         f"Hi {user.first_name}! I'm your AI-powered Split Bill Bot.\n\n"
-        "**Here's the new, powerful way to split a bill:**\n\n"
+        "**Here's the powerful way to split a bill:**\n\n"
         "1.  **Send me a photo** of your itemized receipt.\n"
         "2.  I'll read all the items, tax, and service charge.\n"
         "3.  I'll ask you who ate what.\n"
@@ -72,7 +72,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "*/gemini [question]* - Ask my AI brain anything.\n"
         "*/cancel* - Cancel the current bill splitting conversation."
     )
-    await update.message.reply_text(welcome_message)
+    await update.message.reply_text(welcome_message, parse_mode='Markdown')
 
 async def split_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Splits the bill based on user input (the simple, manual way)."""
@@ -116,7 +116,7 @@ async def gemini_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error calling Gemini: {e}")
         await update.message.reply_text("Sorry, my AI brain is a bit foggy. Please try again.")
 
-# --- Bill Splitting Conversation Functions (Same as before) ---
+# --- Bill Splitting Conversation Functions ---
 
 async def start_bill_split_convo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -144,13 +144,15 @@ async def start_bill_split_convo(update: Update, context: ContextTypes.DEFAULT_T
         ]
         
         response = model.generate_content(prompt)
-        json_text = response.text.strip().lstrip("```json").rstrip("```")
+        # Clean the response to get only the JSON
+        json_text = response.text.strip().lstrip("```json").rstrip("```").lstrip("```")
         bill_data = json.loads(json_text)
         
         if "items" not in bill_data or not bill_data["items"]:
             await update.message.reply_text("Sorry, I couldn't find any items on that receipt. Please try a clearer photo.")
             return ConversationHandler.END
 
+        # Store the bill data in the conversation context
         context.user_data['bill_data'] = bill_data
         
         item_list = ""
@@ -170,7 +172,8 @@ async def start_bill_split_convo(update: Update, context: ContextTypes.DEFAULT_T
             "Everyone: Tacos (to split an item)"
         )
 
-        await update.message.reply_text(summary_message)
+        await update.message.reply_text(summary_message, parse_mode='Markdown')
+        # We are now in the next state, waiting for the user's text message
         return RECEIVE_ASSIGNMENTS
 
     except Exception as e:
@@ -202,17 +205,18 @@ async def receive_assignments(update: Update, context: ContextTypes.DEFAULT_TYPE
         "3.  Calculate the total subtotal of all assigned items.\n"
         "4.  Calculate each person's *percentage* of this total subtotal.\n"
         "5.  Each person must pay their item subtotal, plus their *percentage* of the `tax` and `service_charge`.\n"
-        "6.  Respond with a clear, final breakdown for each person.\n"
+        "6.  Respond with a clear, final breakdown for each person, formatted with Markdown.\n"
     )
 
     try:
         response = model.generate_content(calculation_prompt)
-        await update.message.reply_text(response.text)
+        await update.message.reply_text(response.text, parse_mode='Markdown')
 
     except Exception as e:
         logger.error(f"Error in receive_assignments (calculation): {e}")
         await update.message.reply_text("Sorry, I had trouble with the final calculation. Please try again.")
 
+    # End the conversation
     context.user_data.clear()
     return ConversationHandler.END
 
